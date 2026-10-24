@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pixel Flow — 4 черги</title>
+<style>
+  :root{--bg:#0d1017;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;user-select:none}
+  #c{display:block;width:100%;height:100%;touch-action:none}
+  #photo{display:none}
+  #photoLbl{position:fixed;right:10px;top:10px;z-index:20;background:#1b2130;border:1px solid #2a3346;
+    color:#cfd6e6;font:700 13px -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:12px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<label id="photoLbl" for="photo">📷 фото</label>
+<input id="photo" type="file" accept="image/*">
+<script>
+"use strict";
+/* Pixel Flow: 4 вертикальні черги поросят + 5 слотів-лотків.
+   Тап по передньому поросяті будь-якої черги (або по лотку) → конвеєр.
+   Порося з залишком боєзапасу після кола сідає в лоток. */
+
+const LEVELS = [
+  { name:"Серце", lines:5, belt:5, palette:["#e5484d","#ffe3e6","#b8262c"], art:[
+    "..............","...rr....rr...","..rwrr..rrrdr.",".rwwrrrrrrrdr.",".rrrrrrrrrrdr.",
+    ".rrrrrrrrrrdr.","..rrrrrrrrdr..","...rrrrrrdr...","....rrrrdr....",".....rrdr.....",
+    "......rr......",".............."]},
+  { name:"Гриб", lines:4, belt:6, palette:["#e5484d","#fff6ee","#7a2f36","#3fbf6f"], art:[
+    "................","................","....rrrrrrrr....","...rrwrrrrwrr...","..rrrrrrrrrrrr..",
+    "..rwrrrrrrrrwr..","..rrrrrrrrrrrr..","..kkkkkkkkkkkk..","....kwwwwwwk....","....kkwwwwkk....",
+    "...kkwwwwkk...","...kwccccwk...","..kkwccccwkk..","..kwwwwwwwwk..","..kwwwwwwwwk..",
+    "..kkwwwwwwkk..","...krrrrrrk...","...krrrrrrk...","....krrrrk....","....koooyk....","......oy......"]},
+  { name:"Котик", lines:5, belt:7, palette:["#3a3f4b","#f2f2f2","#f08fa8","#5cc98a"], art:[
+    "................","..kk........kk..","..kkkk....kkkk..","..kkkkkkkkkkkk..","..kkkkkkkkkkkk..",
+    ".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",
+    ".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.","..kkkkkkkkkkkk..","...kkkkkkkkkk...","....kkkkkkkk...."]},
+  { name:"Ракета", lines:3, belt:8, palette:["#e9eef7","#e5484d","#7f8798","#ff9f43"], art:[
+    ".......ww.......","......wwww......",".....wwwwww.....","....wwwwwwww....","....wwwwwwww....",
+    "....wwwwwwww....","....wwwwwwww....","....wwwwwwww....","....wwwwwwww....","...gwwwwwwwwg...",
+    "...gwwwwwwwwg...","..ggwwwwwwwwgg..","..ggwwwwwwwwgg..","..gg.wwwwww.gg..",".....oooooo.....",
+    "......oooo......"]},
+  ];
+
+const TRAYS = 5;       // лотки для тих, хто повернувся
+const QUEUES = 4;      // чотири вертикальні черги
+const BELT_CAP = 5;    // місткість конвеєра (як 2/5 у грі)
+const PIG_SPEED = 58;
+const FIRE_CD = 0.22;
+
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
+let W=0,H=0,DPR=1;
+let level=0, cubes=[], legend={}, board={x:0,y:0,w:0,h:0,cell:16}, contentW=1, contentH=1;
+let pathPts=[], pathLen=0;
+let pigs=[], trays=Array(TRAYS).fill(null), queues=[], shots=[], queueCount=4, beltCap=5;
+let trayCount=TRAYS, boosters={hand:3,shuffle:3,tray:3,super:3}, mode=null;
+let status="play", totalCubes=0, unlocked=0, stuckT=0, levelName="", lastGrid=null;
+let cubeMap=new Map();
+function reindex(){ cubeMap.clear(); cubes.forEach(c=>cubeMap.set(c.x+","+c.y,c)); }
+
+try{ const s=JSON.parse(localStorage.getItem("pixelflow.belt2")||"{}"); unlocked=s.unlocked||0; }catch(e){}
+function save(){ try{ localStorage.setItem("pixelflow.belt2", JSON.stringify({unlocked})); }catch(e){} }
+function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
+
+
+/* ---------- фото → рівень ---------- */
+function quantizePalette(px,k=5){
+  const step=Math.max(1,Math.floor(px.length/4000));
+  const sample=px.filter((_,i)=>i%step===0);
+  let cents=[];
+  for(let i=0;i<k;i++){ const p=sample[Math.floor(i*(sample.length-1)/Math.max(1,k-1))]||[128,128,128]; cents.push([p[0],p[1],p[2]]); }
+  for(let it=0;it<8;it++){
+    const sum=Array.from({length:k},()=>[0,0,0,0]);
+    for(const p of sample){
+      let bi=0,bd=Infinity;
+      for(let i=0;i<k;i++){ const c=cents[i], d=(p[0]-c[0])**2+(p[1]-c[1])**2+(p[2]-c[2])**2; if(d<bd){bd=d;bi=i;} }
+      sum[bi][0]+=p[0]; sum[bi][1]+=p[1]; sum[bi][2]+=p[2]; sum[bi][3]++;
+    }
+    cents=cents.map((c,i)=>sum[i][3]?[sum[i][0]/sum[i][3],sum[i][1]/sum[i][3],sum[i][2]/sum[i][3]]:c);
+  }
+  const hex=c=>"#"+c.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join("");
+  return [...new Set(cents.map(hex))];
+}
+function startCustom(cells,gw,gh){
+  level=-1; levelName="Фото";
+  cubes=cells.map(c=>({x:c.x,y:c.y,color:c.color,hp:1}));
+  const minX=Math.min(...cubes.map(c=>c.x)), minY=Math.min(...cubes.map(c=>c.y));
+  cubes.forEach(c=>{ c.x-=minX; c.y-=minY; });
+  contentW=Math.max(...cubes.map(c=>c.x))+1; contentH=Math.max(...cubes.map(c=>c.y))+1;
+  totalCubes=cubes.length; status="play"; stuckT=0;
+  pigs=[]; shots=[]; trayCount=TRAYS; trays=Array(trayCount).fill(null);
+  queueCount=cubes.length>1400?5:(cubes.length>600?4:3);
+  queues=Array.from({length:queueCount},()=>[]);
+  beltCap=cubes.length>1400?7:6;
+  boosters={hand:3,shuffle:3,tray:3,super:3}; mode=null;
+  layout();
+  reindex();
+  makePool();
+}
+function imageToGrid(img){
+  const gw=44, gh=Math.max(10,Math.min(64,Math.round(gw*img.height/Math.max(1,img.width))));
+  const cn=document.createElement("canvas"); cn.width=gw; cn.height=gh;
+  const cx=cn.getContext("2d",{willReadFrequently:true});
+  cx.drawImage(img,0,0,gw,gh);
+  const d=cx.getImageData(0,0,gw,gh).data;
+  const raw=[], px=[];
+  for(let y=0;y<gh;y++) for(let x=0;x<gw;x++){
+    const i=(y*gw+x)*4;
+    if(d[i+3]<140) continue;
+    raw.push({x,y,r:d[i],g:d[i+1],b:d[i+2]});
+    px.push([d[i],d[i+1],d[i+2]]);
+  }
+  if(!raw.length) return;
+  const pal=quantizePalette(px,6).map(h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16),h]);
+  const cells=raw.map(o=>{
+    let best=pal[0],bd=Infinity;
+    for(const c of pal){ const dd=(o.r-c[0])**2+(o.g-c[1])**2+(o.b-c[2])**2; if(dd<bd){bd=dd;best=c;} }
+    return {x:o.x,y:o.y,color:best[3]};
+  });
+  lastGrid={cells:cells.map(c=>({...c})),gw,gh};
+  startCustom(cells,gw,gh);
+}
+function loadPhotoFile(f){
+  const img=new Image();
+  img.onload=()=>{ imageToGrid(img); URL.revokeObjectURL(img.src); };
+  img.src=URL.createObjectURL(f);
+}
+document.getElementById("photo").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) loadPhotoFile(f); e.target.value=""; });
+
+/* ---------- рівень ---------- */
+function buildLevel(li){
+  level=li; const L=LEVELS[li]; legend={}; levelName=L.name;
+  // маска з ASCII-арту
+  let mask=[];
+  for(let y=0;y<L.art.length;y++) for(let x=0;x<L.art[y].length;x++){
+    if(L.art[y][x]!=="." && L.art[y][x]!==" ") mask.push({x,y});
+  }
+  // шари: клітинка з порожнім сусідом — зовнішній шар
+  const alive=new Set(mask.map(c=>c.x+","+c.y));
+  const has=(x,y)=>alive.has(x+","+y);
+  const layer=new Map(); let rest=mask.slice(); let li0=0;
+  while(rest.length){
+    const front=rest.filter(c=>!has(c.x+1,c.y)||!has(c.x-1,c.y)||!has(c.x,c.y+1)||!has(c.x,c.y-1));
+    if(!front.length) break;
+    front.forEach(c=>{ layer.set(c.x+","+c.y, li0); alive.delete(c.x+","+c.y); });
+    rest=rest.filter(c=>!front.includes(c));
+    li0++;
+  }
+  const H0=Math.max(...mask.map(c=>c.y))+1;
+  const band=Math.max(1,Math.ceil(H0/L.palette.length));
+  cubes=mask.map(c=>({x:c.x,y:c.y,color:L.palette[Math.floor(c.y/band)%L.palette.length],hp:1}));
+  { const big=[]; cubes.forEach(c=>{ for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++) big.push({x:c.x*2+dx,y:c.y*2+dy,color:c.color,hp:1}); }); cubes=big; }
+  const minX=Math.min(...cubes.map(c=>c.x)), maxX=Math.max(...cubes.map(c=>c.x));
+  const minY=Math.min(...cubes.map(c=>c.y)), maxY=Math.max(...cubes.map(c=>c.y));
+  cubes.forEach(c=>{c.x-=minX;c.y-=minY;});
+  contentW=maxX-minX+1; contentH=maxY-minY+1;
+  totalCubes=cubes.length; status="play"; stuckT=0;
+  pigs=[]; shots=[]; trayCount=TRAYS; trays=Array(trayCount).fill(null);
+  queueCount=LEVELS[li].lines||4; queues=Array.from({length:queueCount},()=>[]);
+  beltCap=LEVELS[li].belt||5;
+  boosters={hand:3,shuffle:3,tray:3,super:3}; mode=null;
+  layout();
+  reindex();
+  makePool();
+}
+function peelOrder(){
+  const alive=new Map(cubes.map(c=>[c.x+","+c.y,c]));
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  const exposed=c=>dirs.some(([dx,dy])=>!alive.has((c.x+dx)+","+(c.y+dy)));
+  const out=[]; let rest=cubes.slice();
+  while(rest.length){
+    const layer=rest.filter(exposed);
+    if(!layer.length){ out.push(...rest); break; }
+    out.push(...layer);
+    layer.forEach(c=>alive.delete(c.x+","+c.y));
+    rest=rest.filter(c=>alive.has(c.x+","+c.y));
+  }
+  return out;
+}
+function makePool(){
+  // поросята тільки з боєзапасом 10–20, як в оригіналі
+  const order=peelOrder().filter(c=>!c.black);
+  const runs=[];
+  for(const c of order){
+    const last=runs[runs.length-1];
+    if(last && last.color===c.color) last.n++;
+    else runs.push({color:c.color, n:1});
+  }
+  const pool=[];
+  for(const r of runs){
+    let left=r.n;
+    while(left>0){
+      let n=Math.min(20,left);
+      if(left-n>0 && left-n<10) n=Math.max(10,left-10);
+      if(n<10) n=10;                    // недобір добираємо зарядом, менше 10 не буває
+      pool.push({color:r.color, ammo:Math.min(20,n)});
+      left-=Math.min(left,n);
+    }
+  }
+  pool.forEach((p,i)=>{ queues[i%queueCount].push(p); });
+}
+function fillQueues(){ /* черги наповнюються одразу в makePool */ }
+
+/* ---------- геометрія ---------- */
+function layout(){
+  const hud=54, bottom=268, pad=8;
+  const availW=W-pad*2, availH=H-hud-bottom;
+  const artW=contentW, artH=contentH;
+  const cell=Math.max(5,Math.floor(Math.min(availW/(artW+5), availH/(artH+5))));
+  const bw=cell*artW, bh=cell*artH;
+  board={x:(W-bw)/2, y:hud+Math.max(0,(availH-bh)/2), w:bw, h:bh, cell};
+  buildPath();
+}
+function buildPath(){
+  const m=Math.max(20, board.cell*1.15), r=Math.max(16, board.cell*0.9);
+  const x0=board.x-m, y0=board.y-m, x1=board.x+board.w+m, y1=board.y+board.h+m;
+  const pts=[], step=6;
+  const line=(ax,ay,bx,by)=>{ const d=Math.hypot(bx-ax,by-ay), n=Math.max(1,Math.ceil(d/step));
+    for(let i=0;i<n;i++) pts.push({x:ax+(bx-ax)*i/n,y:ay+(by-ay)*i/n}); };
+  const arc=(cx,cy,a0,a1)=>{ const d=r*Math.abs(a1-a0), n=Math.max(2,Math.ceil(d/step));
+    for(let i=0;i<n;i++){ const a=a0+(a1-a0)*i/n; pts.push({x:cx+Math.cos(a)*r,y:cy+Math.sin(a)*r}); } };
+  line(x0+r,y0,x1-r,y0); arc(x1-r,y0+r,-Math.PI/2,0);
+  line(x1,y0+r,x1,y1-r); arc(x1-r,y1-r,0,Math.PI/2);
+  line(x1-r,y1,x0+r,y1); arc(x0+r,y1-r,Math.PI/2,Math.PI);
+  line(x0,y1-r,x0,y0+r); arc(x0+r,y0+r,Math.PI,Math.PI*1.5);
+  pathPts=pts; pathLen=0;
+  for(let i=1;i<pts.length;i++) pathLen+=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y);
+  pts.forEach((p,i)=>{ p.d = i ? pts[i-1].d + Math.hypot(p.x-pts[i-1].x,p.y-pts[i-1].y) : 0; });
+}
+function pointAt(d){
+  d=((d%pathLen)+pathLen)%pathLen;
+  let lo=0,hi=pathPts.length-1;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(pathPts[mid].d<d) lo=mid+1; else hi=mid; }
+  const b=pathPts[lo], a=pathPts[Math.max(0,lo-1)];
+  const seg=(b.d-a.d)||1, k=(d-a.d)/seg;
+  return {x:a.x+(b.x-a.x)*k, y:a.y+(b.y-a.y)*k};
+}
+
+/* ---------- дії ---------- */
+function canDeploy(){ return status==="play" && pigs.length<beltCap; }
+function deployPig(p){
+  if(!p) return false;
+  if(!canDeploy()) return false;
+  pigs.push({...p, d:0, cd:0});
+  buzz(8); return true;
+}
+function deployQueue(qi, idx=0){
+  const q=queues[qi]; if(!q||!q.length) return;
+  if(idx>0 && mode!=="hand"){ buzz(15); return; }
+  if(canDeploy() && deployPig(q[idx])){
+    q.splice(idx,1);
+    if(mode==="hand" && idx>0){ boosters.hand--; mode=null; }
+  }
+}
+function useBooster(id){
+  if(status!=="play") return;
+  if(id==="hand" && boosters.hand>0){ mode = (mode==="hand")?null:"hand"; buzz(8); }
+  else if(id==="super" && boosters.super>0){ mode = (mode==="super")?null:"super"; buzz(8); }
+  else if(id==="shuffle" && boosters.shuffle>0){ boosters.shuffle--; queues.forEach(q=>q.sort(()=>Math.random()-0.5)); buzz(12); }
+  else if(id==="tray" && boosters.tray>0 && trayCount<6){ boosters.tray--; trayCount++; trays.push(null); buzz(12); }
+}
+function deployTray(i){
+  if(!trays[i]) return;
+  if(canDeploy() && deployPig(trays[i])) trays[i]=null;
+}
+function returnPig(p){
+  const i=trays.findIndex(t=>!t);
+  if(i>=0){ trays[i]={color:p.color,ammo:p.ammo}; return true; }
+  status="lose"; buzz([40,60,40]);   // поросяту нема куди сісти — слоти зайняті
+  return false;
+}
+function isVisible(c){
+  return !cubeMap.has((c.x+1)+","+c.y) || !cubeMap.has((c.x-1)+","+c.y) ||
+         !cubeMap.has(c.x+","+(c.y+1)) || !cubeMap.has(c.x+","+(c.y-1));
+}
+function superWipe(color){
+  const targets=cubes.filter(c=>c.color===color && isVisible(c));
+  cubes=cubes.filter(c=>!targets.includes(c));
+  reindex();
+  stuckT=0;
+  return targets.length;
+}
+function waitingCount(){ return queues.reduce((n,q)=>n+q.length,0); }
+function aliveColor(c){ return cubes.some(q=>q.color===c&&q.hp>0); }
+// постріл іде тільки прямо, до центру поля; перший куб на лінії блокує
+function inwardDir(d){
+  const a=pointAt(d-4), b=pointAt(d+4);
+  let tx=b.x-a.x, ty=b.y-a.y;
+  const tl=Math.hypot(tx,ty)||1; tx/=tl; ty/=tl;
+  let nx=-ty, ny=tx;                       // нормаль до конвеєра
+  const cx=board.x+board.w/2, cy=board.y+board.h/2;
+  const pos=pointAt(d);
+  if((cx-pos.x)*nx+(cy-pos.y)*ny < 0){ nx=-nx; ny=-ny; }  // всередину поля
+  return {x:nx,y:ny};
+}
+function rayTarget(pos, dir){
+  const ux=dir.x, uy=dir.y;
+  const step=Math.max(3,board.cell/4), maxD=Math.hypot(board.w,board.h)+board.cell;
+  let lastKey=null;
+  for(let d=board.cell*0.5; d<maxD; d+=step){
+    const x=pos.x+ux*d, y=pos.y+uy*d;
+    const gx=Math.floor((x-board.x)/board.cell), gy=Math.floor((y-board.y)/board.cell);
+    if(gx<0||gy<0||gx>=contentW||gy>=contentH) continue;
+    const key=gx+","+gy; if(key===lastKey) continue; lastKey=key;
+    const c=cubeMap.get(gx+","+gy);
+    if(c && c.hp>0) return c;
+  }
+  return null;
+}
+
+/* ---------- апдейт ---------- */
+function update(dt){
+  if(status!=="play") return;
+  shots.forEach(s=>s.t+=dt); shots=shots.filter(s=>s.t<0.18);
+  for(let i=pigs.length-1;i>=0;i--){
+    const p=pigs[i];
+    p.d+=PIG_SPEED*dt; p.cd-=dt;
+    if(!aliveColor(p.color) && !cubes.some(c=>c.black)){ pigs.splice(i,1); continue; }
+    if(p.d>=pathLen){
+      if(p.ammo>0) returnPig(p);
+      pigs.splice(i,1); continue;
+    }
+    if(p.cd>0) continue;
+    const pos=pointAt(p.d);
+    const hit=rayTarget(pos, inwardDir(p.d));
+    // перший куб на лінії: свій колір — влучання, чужий — блок, пострілу нема
+    if(hit && (hit.black || hit.color===p.color)){
+      hit.hp--; if(hit.hp<=0){ const ix=cubes.indexOf(hit); if(ix>=0) cubes.splice(ix,1); reindex(); } p.ammo--; p.cd=FIRE_CD;
+      const cx=board.x+(hit.x+0.5)*board.cell, cy=board.y+(hit.y+0.5)*board.cell;
+      shots.push({x:pos.x,y:pos.y,tx:cx,ty:cy,color:p.color,t:0});
+      buzz(4);
+      if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; }
+      if(p.ammo<=0) pigs.splice(i,1);
+    } else if(hit){
+      p.cd=FIRE_CD*1.6;  // чужий колір попереду — порося не пробиває
+    }
+  }
+  if(status==="play" && trays.every(Boolean)){
+    const vis=new Set(cubes.filter(c=>isVisible(c)).map(c=>c.color));
+    const canAct = pigs.some(p=>vis.has(p.color)) ||
+      trays.some(p=>p && vis.has(p.color)) ||
+      queues.some(q=>q.length && vis.has(q[0].color));
+    if(!canAct){ status="lose"; buzz([40,60,40]); }   // слоти забиті, ходити нічим
+  }
+  if(cubes.length===0){ status="win"; unlocked=Math.max(unlocked,level+1); save(); buzz([20,60,20]); }
+  else if(pigs.length===0 && trays.every(t=>!t) && queues.every(q=>q.length===0)){ status="lose"; buzz([40,60,40]); }
+}
+
+/* ---------- геометрія низу ---------- */
+function trayRect(i){
+  const n=Math.max(1,trayCount), gap=8, size=Math.min((W-gap*(n+1))/n, 48);
+  const tw=size*n+gap*(n-1), y=H-244;
+  return {x:(W-tw)/2+i*(size+gap), y, w:size, h:size};
+}
+function boosterRect(i){
+  const n=4, gap=16, size=34;
+  const tw=size*n+gap*(n-1), y=H-size-8;
+  return {x:(W-tw)/2+i*(size+gap), y, w:size, h:size};
+}
+function queueRect(qi, pos){
+  const n=queueCount, gap=10, size=Math.min((W-gap*(n+1))/n, 58);
+  const tw=size*n+gap*(n-1), y0=H-172;
+  return {x:(W-tw)/2+qi*(size+gap), y:y0+pos*(size*0.62+4), w:size, h:size*0.58};
+}
+
+/* ---------- ввід ---------- */
+cv.addEventListener("pointerdown",e=>{
+  const r=cv.getBoundingClientRect();
+  const x=(e.clientX-r.left)*(W/r.width), y=(e.clientY-r.top)*(H/r.height);
+  if(status!=="play"){
+    const bw=Math.min(250,W*0.7), bh=52, by=H*0.62;
+    if(y>by&&y<by+bh&&Math.abs(x-W/2)<bw/2){
+      if(level<0 && lastGrid){ startCustom(lastGrid.cells.map(c=>({...c})),lastGrid.gw,lastGrid.gh); return; }
+      buildLevel(status==="win"&&level+1<LEVELS.length?level+1:level);
+    }
+    return;
+  }
+  if(mode==="super"){
+    const gx=Math.floor((x-board.x)/board.cell), gy=Math.floor((y-board.y)/board.cell);
+    const c=cubes.find(q=>q.x===gx&&q.y===gy);
+    if(c){ superWipe(c.color); boosters.super--; mode=null; }
+    return;
+  }
+  for(let b=0;b<4;b++){ const r=boosterRect(b);
+    if(x>=r.x-4&&x<=r.x+r.w+4&&y>=r.y-4&&y<=r.y+r.h+4){ useBooster(["hand","shuffle","tray","super"][b]); return; } }
+  for(let i=0;i<trayCount;i++){ const s=trayRect(i);
+    if(x>=s.x&&x<=s.x+s.w&&y>=s.y&&y<=s.y+s.h){ deployTray(i); return; } }
+  for(let qi=0;qi<queueCount;qi++){
+    const q=queues[qi]; if(!q.length) continue;
+    for(let k=0;k<Math.min(3,q.length);k++){
+      const s=queueRect(qi,k);
+      if(x>=s.x-2&&x<=s.x+s.w+2&&y>=s.y-3&&y<=s.y+s.h+3){ deployQueue(qi, k); return; }
+    }
+  }
+});
+
+/* ---------- малювання ---------- */
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function shade(hex,k){ const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  if(k>=0){r+=(255-r)*k;g+=(255-g)*k;b+=(255-b)*k}else{r*=1+k;g*=1+k;b*=1+k}
+  return `rgb(${r|0},${g|0},${b|0})`; }
+function textOn(hex){ const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  return (0.299*r+0.587*g+0.114*b)/255>0.6?"#12141c":"#fff"; }
+
+function draw(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,"#111520"); g.addColorStop(1,"#0a0d14");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  drawHud(); drawPath(); drawCubes(); drawPigs(); drawShots(); drawTrays(); drawQueues(); drawOverlay();
+}
+function drawHud(){
+  ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.fillStyle="#e8ecf4";
+  ctx.font="700 16px -apple-system,system-ui,sans-serif";
+  ctx.fillText(`${level>=0?`Рівень ${level+1} · `:""}${levelName}`,14,22);
+  ctx.font="600 12px -apple-system,system-ui,sans-serif"; ctx.fillStyle="#8890b0";
+  ctx.fillText(`лишилось ${cubes.length} / ${totalCubes}`,14,42);
+  const bw=Math.min(W-28,240), bx=(W-bw)/2, by=44;
+  ctx.fillStyle="rgba(255,255,255,.08)"; rr(bx,by,bw,6,3); ctx.fill();
+  ctx.fillStyle="#ffd23f"; rr(bx,by,Math.max(3,bw*(1-cubes.length/Math.max(1,totalCubes))),6,3); ctx.fill();
+}
+function drawPath(){
+  ctx.lineWidth=board.cell*1.1; ctx.strokeStyle="rgba(255,255,255,.06)";
+  ctx.beginPath(); pathPts.forEach((p,i)=> i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)); ctx.closePath(); ctx.stroke();
+  ctx.lineWidth=2; ctx.strokeStyle="rgba(255,210,63,.22)"; ctx.stroke();
+  const lx=board.x, ly=board.y+board.h+Math.max(20,board.cell*1.15)+12;
+  ctx.fillStyle="rgba(8,10,15,.55)"; rr(lx-10,ly-11,86,22,11); ctx.fill();
+  ctx.fillStyle=pigs.length>=beltCap?"#ff8b8f":"#cfd6e6";
+  ctx.font="700 11px -apple-system,system-ui,sans-serif"; ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillText(`конвеєр ${pigs.length}/${beltCap}`, lx-3, ly+0.5);
+}
+function drawCubes(){
+  const c=board.cell;
+  cubes.forEach(q=>{
+    const x=board.x+q.x*c, y=board.y+q.y*c;
+    ctx.fillStyle=q.color; rr(x+1,y+1,c-2,c-2,Math.max(2,c*0.18)); ctx.fill();
+    if(q.hp>1){ ctx.strokeStyle="rgba(0,0,0,.5)"; ctx.lineWidth=2; ctx.stroke();
+      ctx.strokeStyle="rgba(255,255,255,.35)"; ctx.lineWidth=1; ctx.stroke(); }
+    ctx.fillStyle="rgba(255,255,255,.18)"; ctx.fillRect(x+2,y+2,c-4,Math.max(2,c*0.12));
+  });
+}
+function drawPigs(){
+  pigs.forEach(p=>{
+    const pos=pointAt(p.d);
+    ctx.fillStyle=shade(p.color,-0.28);
+    ctx.beginPath(); ctx.arc(pos.x-7,pos.y-9,5,0,7); ctx.arc(pos.x+7,pos.y-9,5,0,7); ctx.fill();
+    ctx.fillStyle=shade(p.color,-0.15); ctx.beginPath(); ctx.arc(pos.x,pos.y,15,0,7); ctx.fill();
+    ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(pos.x,pos.y,12,0,7); ctx.fill();
+    if(p.super){ ctx.strokeStyle="#ffd23f"; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(pos.x,pos.y,15,0,7); ctx.stroke(); }
+    ctx.fillStyle=textOn(p.color); ctx.font="800 13px -apple-system,system-ui,sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(String(p.ammo),pos.x,pos.y);
+  });
+}
+function drawShots(){
+  shots.forEach(s=>{ const k=s.t/0.18;
+    ctx.globalAlpha=1-k; ctx.fillStyle=s.color; ctx.beginPath();
+    ctx.arc(s.x+(s.tx-s.x)*k, s.y+(s.ty-s.y)*k, 4,0,7); ctx.fill(); ctx.globalAlpha=1; });
+}
+function drawTrays(){
+  for(let i=0;i<trayCount;i++){
+    const r=trayRect(i), p=trays[i];
+    ctx.fillStyle=p?"rgba(255,255,255,.07)":"rgba(255,255,255,.03)";
+    rr(r.x,r.y,r.w,r.h,12); ctx.fill();
+    ctx.strokeStyle=p?"rgba(255,210,63,.35)":"rgba(255,255,255,.10)"; ctx.lineWidth=1; ctx.stroke();
+    if(!p) continue;
+    ctx.fillStyle=p.color; rr(r.x+5,r.y+5,r.w-10,r.h-10,9); ctx.fill();
+    ctx.fillStyle=textOn(p.color); ctx.font="800 15px -apple-system,system-ui,sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(String(p.ammo),r.x+r.w/2,r.y+r.h/2);
+  }
+  ctx.fillStyle="#8890b0"; ctx.font="600 10px -apple-system,system-ui,sans-serif";
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillText("лотки", 14, trayRect(0).y-10);
+  drawBoosters();
+}
+function drawBoosters(){
+  const icons=["✋","⇄","＋","★"], ids=["hand","shuffle","tray","super"];
+  for(let i=0;i<4;i++){
+    const r=boosterRect(i), n=boosters[ids[i]], active=(mode===ids[i]);
+    ctx.fillStyle=n>0?(active?"rgba(255,210,63,.22)":"rgba(255,255,255,.07)"):"rgba(255,255,255,.03)";
+    rr(r.x,r.y,r.w,r.h,10); ctx.fill();
+    ctx.strokeStyle=active?"#ffd23f":"rgba(255,255,255,.12)"; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle=n>0?"#cfd6e6":"#4a5164"; ctx.font="700 15px -apple-system,system-ui,sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(icons[i], r.x+r.w/2, r.y+r.h/2-1);
+    ctx.fillStyle=n>0?"#ffd23f":"#3a4052"; ctx.font="700 9px -apple-system,system-ui,sans-serif";
+    ctx.fillText(String(n), r.x+r.w-6, r.y+7);
+  }
+}
+function drawQueues(){
+  ctx.fillStyle="#8890b0"; ctx.font="600 10px -apple-system,system-ui,sans-serif";
+  ctx.textAlign="left"; ctx.textBaseline="middle"; ctx.fillText("черги", 14, H-186);
+  for(let qi=0;qi<queueCount;qi++){
+    const q=queues[qi];
+    // фон колонки
+    const top=queueRect(qi,0);
+    ctx.fillStyle="rgba(255,255,255,.025)"; rr(top.x-4, top.y-6, top.w+8, H-14-top.y, 12); ctx.fill();
+    for(let k=0;k<Math.min(3,q.length);k++){
+      const r=queueRect(qi,k), p=q[k], front=(k===0);
+      ctx.globalAlpha=front?1:0.75;
+      ctx.fillStyle=p.color; rr(r.x,r.y,r.w,r.h,8); ctx.fill();
+      ctx.fillStyle=textOn(p.color); ctx.font=`800 ${front?14:12}px -apple-system,system-ui,sans-serif`;
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(String(p.ammo), r.x+r.w/2, r.y+r.h/2);
+      ctx.globalAlpha=1;
+    }
+    if(q.length>3){
+      ctx.fillStyle="#8890b0"; ctx.font="600 9px -apple-system,system-ui,sans-serif";
+      ctx.fillText(`+${q.length-3}`, top.x+top.w/2, queueRect(qi,2).y+queueRect(qi,2).h+9);
+    }
+  }
+  ctx.fillStyle=mode?"#ffd23f":"#5f677e"; ctx.font="600 10px -apple-system,system-ui,sans-serif";
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(mode==="hand"?"обери будь-яке порося в черзі":(mode==="super"?"обери порося — битиме будь-який колір":"тап по передньому поросяті → конвеєр"), W/2, H-256);
+}
+function drawOverlay(){
+  if(status==="play") return;
+  ctx.fillStyle="rgba(8,10,15,.84)"; ctx.fillRect(0,0,W,H);
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillStyle=status==="win"?"#ffd23f":"#ff8b8f";
+  ctx.font="800 24px -apple-system,system-ui,sans-serif";
+  ctx.fillText(status==="win"?"Поле очищено!":"Конвеєр заклинило", W/2, H*0.40);
+  const bw=Math.min(250,W*0.7), bh=52, by=H*0.62;
+  ctx.fillStyle="#ffd23f"; rr((W-bw)/2,by,bw,bh,26); ctx.fill();
+  ctx.fillStyle="#12141c"; ctx.font="800 18px -apple-system,system-ui,sans-serif";
+  ctx.fillText(status==="win"?(level>=0&&level+1<LEVELS.length?"Далі ▶":"Ще раз ↻"):"Ще раз ↻", W/2, by+bh/2);
+}
+
+/* ---------- цикл ---------- */
+let last=0;
+function tick(now){ const dt=Math.min(0.05,(now-last)/1000||0); last=now; update(dt); draw(); requestAnimationFrame(tick); }
+function resize(){ DPR=Math.min(2,window.devicePixelRatio||1); W=cv.clientWidth; H=cv.clientHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); layout(); }
+window.addEventListener("resize",resize);
+buildLevel(0); resize(); requestAnimationFrame(tick);
+
+/* тестові хуки */
+window.__g={
+  get status(){return status}, get cubes(){return cubes.length}, get pigs(){return pigs.length},
+  get trays(){return trays.map(p=>p&&{c:p.color,a:p.ammo})},
+  get queues(){return queues.map(q=>q.map(p=>({c:p.color,a:p.ammo})))},
+  get diag(){return {level,cubes:cubes.length,total:totalCubes,pigs:pigs.length,
+    trays:trays.filter(Boolean).length, q:queues.map(q=>q.length), status}},
+  deployQueue, deployTray, goto:buildLevel,
+  loadImage(url){ const im=new Image(); im.crossOrigin="anonymous"; im.onload=()=>imageToGrid(im); im.src=url; return "loading"; },
+  get levelName(){return levelName},
+  step(dt=1/60){ update(dt); },
+  auto(seconds=200){ let t=0;
+    while(status==="play"&&t<seconds){
+      if(pigs.length<beltCap && trays.some(x=>!x)){
+        const vis=new Set(cubes.filter(c=>!c.black && isVisible(c)).map(c=>c.color));
+        let did=false;
+        for(let i=0;i<trayCount;i++) if(trays[i] && vis.has(trays[i].color)){ deployTray(i); did=true; break; }
+        if(!did) for(let qi=0;qi<queueCount;qi++) if(queues[qi].length && vis.has(queues[qi][0].color)){ deployQueue(qi); did=true; break; }
+        if(!did && boosters.hand>0){
+          outer: for(let qi=0;qi<queueCount;qi++){
+            const q=queues[qi];
+            for(let k=1;k<q.length;k++) if(vis.has(q[k].color)){ mode='hand'; deployQueue(qi,k); did=true; break outer; }
+          }
+        }
+      }
+
+      update(1/60); t+=1/60;
+    }
+    return this.diag; }
+};
+</script>
+</body>
+</html>
