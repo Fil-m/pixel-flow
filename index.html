@@ -146,7 +146,7 @@ function startCustom(cells,gw,gh){
   queueCount=cubes.length>1400?5:(cubes.length>600?4:3);
   queues=Array.from({length:queueCount},()=>[]);
   beltCap=cubes.length>1400?7:6;
-  boosters={hand:6,shuffle:4,tray:3,super:3}; mode=null;
+  boosters={hand:8,shuffle:5,tray:3,super:3}; mode=null;
   layout();
   reindex();
   makePool();
@@ -216,7 +216,7 @@ function buildLevel(li){
   pigs=[]; shots=[]; trayCount=TRAYS; trays=Array(trayCount).fill(null);
   queueCount=LEVELS[li].lines||4; queues=Array.from({length:queueCount},()=>[]);
   beltCap=LEVELS[li].belt||5;
-  boosters={hand:6,shuffle:4,tray:3,super:3}; mode=null;
+  boosters={hand:8,shuffle:5,tray:3,super:3}; mode=null;
   layout();
   reindex();
   makePool();
@@ -350,6 +350,8 @@ function deployTray(i){
   if(canDeploy() && deployPig(trays[i])) trays[i]=null;
 }
 function returnPig(p){
+  // порося, чий колір уже знятий з картинки, у лоток не сідає
+  if(!cubes.some(c=>c.color===p.color)) return true;
   const i=trays.findIndex(t=>!t);
   if(i>=0){ trays[i]={color:p.color,ammo:p.ammo}; return true; }
   status="lose"; buzz([40,60,40]);   // поросяту нема куди сісти — слоти зайняті
@@ -406,7 +408,6 @@ function update(dt){
   for(let i=pigs.length-1;i>=0;i--){
     const p=pigs[i];
     p.d+=PIG_SPEED*dt; p.cd-=dt;
-    if(!aliveColor(p.color) && !cubes.some(c=>c.black)){ pigs.splice(i,1); continue; }
     if(p.d>=pathLen){
       if(p.ammo>0) returnPig(p);
       pigs.splice(i,1); continue;
@@ -427,7 +428,7 @@ function update(dt){
       shots.push({x:pos.x,y:pos.y,tx:cx,ty:cy,color:p.color,t:0});
       p.lastLane=lane; p.usedLanes.add(lane); if(window.__shotLog) window.__shotLog.push(lane);
       buzz(4);
-      if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; pruneDead(); }
+      if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; }
       if(p.ammo<=0) pigs.splice(i,1);
     } else if(hit){
       p.cd=FIRE_CD*1.6;  // чужий колір попереду — порося не пробиває
