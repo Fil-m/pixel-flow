@@ -200,15 +200,18 @@ function makePool(){
     if(last && last.color===c.color) last.n++;
     else runs.push({color:c.color, n:1});
   }
-  const pool=[];
+  const pool=[]; let seq=0;
   for(const r of runs){
     let left=r.n;
     while(left>0){
-      let n=Math.min(20,left);
-      if(left-n>0 && left-n<10) n=Math.max(10,left-10);
-      if(n<10) n=10;                    // недобір добираємо зарядом, менше 10 не буває
-      pool.push({color:r.color, ammo:Math.min(20,n)});
+      // тільки 20, іноді 10 — як в оригіналі
+      let n;
+      if(left<=10) n=10;
+      else if(left<=20) n=(seq%3===2?10:20);
+      else n=(seq%3===2?10:20);
+      pool.push({color:r.color, ammo:n});
       left-=Math.min(left,n);
+      seq++;
     }
   }
   pool.forEach((p,i)=>{ queues[i%queueCount].push(p); });
@@ -294,6 +297,11 @@ function superWipe(color){
   stuckT=0;
   return targets.length;
 }
+function pruneDead(){
+  const alive=new Set(cubes.map(c=>c.color));
+  queues.forEach(q=>{ for(let i=q.length-1;i>=0;i--) if(!alive.has(q[i].color)) q.splice(i,1); });
+  for(let i=0;i<trays.length;i++) if(trays[i] && !alive.has(trays[i].color)) trays[i]=null;
+}
 function waitingCount(){ return queues.reduce((n,q)=>n+q.length,0); }
 function aliveColor(c){ return cubes.some(q=>q.color===c&&q.hp>0); }
 // постріл іде тільки прямо, до центру поля; перший куб на лінії блокує
@@ -343,7 +351,7 @@ function update(dt){
       const cx=board.x+(hit.x+0.5)*board.cell, cy=board.y+(hit.y+0.5)*board.cell;
       shots.push({x:pos.x,y:pos.y,tx:cx,ty:cy,color:p.color,t:0});
       buzz(4);
-      if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; }
+      if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; pruneDead(); }
       if(p.ammo<=0) pigs.splice(i,1);
     } else if(hit){
       p.cd=FIRE_CD*1.6;  // чужий колір попереду — порося не пробиває
