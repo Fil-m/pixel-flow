@@ -250,7 +250,7 @@ function makePool(){
     bestArr.forEach(k=>alive.delete(k));
   }
   // перемішуємо всередині вікон: потрібний колір рідко лежить зверху
-  const win=8;
+  const win=4;
   for(let s=0;s<pool.length;s+=win){
     const part=pool.slice(s,s+win);
     for(let i=part.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [part[i],part[j]]=[part[j],part[i]]; }
