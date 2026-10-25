@@ -13,10 +13,28 @@
   #photo{display:none}
   #photoLbl{position:fixed;right:10px;top:10px;z-index:20;background:#1b2130;border:1px solid #2a3346;
     color:#cfd6e6;font:700 13px -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:12px}
+  #cfgBtn{position:fixed;left:10px;top:10px;z-index:21;background:#1b2130;border:1px solid #2a3346;
+    color:#cfd6e6;font:700 16px -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:12px}
+  #cfg{position:fixed;left:10px;right:10px;top:58px;z-index:22;background:#141a26;border:1px solid #2a3346;
+    border-radius:14px;padding:12px 14px;color:#cfd6e6;font:600 13px -apple-system,system-ui,sans-serif;display:none}
+  #cfg.on{display:block}
+  #cfg label{display:block;margin:12px 0 6px}
+  #cfg .val{float:right;color:#8fa2c4;font-weight:700}
+  #cfg input[type=range]{width:100%;accent-color:#4a8fe7}
+  #cfg button{width:100%;margin-top:14px;padding:10px;border-radius:10px;border:1px solid #2a3346;
+    background:#1b2130;color:#cfd6e6;font:700 14px -apple-system,system-ui,sans-serif}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="cfgBtn">⚙</div>
+<div id="cfg">
+  <label>Швидкість конвеєра <span class="val" id="beltV"></span></label>
+  <input id="belt" type="range" min="10" max="300" step="5">
+  <label>Пауза між пострілами <span class="val" id="fireV"></span></label>
+  <input id="fire" type="range" min="20" max="200" step="5">
+  <button id="cfgClose">Готово</button>
+</div>
 <label id="photoLbl" for="photo">📷 фото</label>
 <input id="photo" type="file" accept="image/*">
 <script>
@@ -57,8 +75,10 @@ const LEVELS = [
 const TRAYS = 5;       // лотки для тих, хто повернувся
 const QUEUES = 4;      // чотири вертикальні черги
 const BELT_CAP = 5;    // місткість конвеєра (як 2/5 у грі)
-const PIG_SPEED = 40;
-const FIRE_CD = 0.035;
+let PIG_SPEED = 40;
+try{ const s=JSON.parse(localStorage.getItem("pixelflow.speed")||"{}");
+  if(s.belt) PIG_SPEED=s.belt; if(s.fire) FIRE_CD=s.fire; }catch(e){}
+let FIRE_CD = 0.035;
 
 const cv=document.getElementById("c"), ctx=cv.getContext("2d");
 let W=0,H=0,DPR=1;
@@ -502,14 +522,27 @@ function drawPath(){
   ctx.fillText(`конвеєр ${pigs.length}/${beltCap}`, lx-3, ly+0.5);
 }
 function drawCubes(){
-  const c=board.cell;
-  cubes.forEach(q=>{
-    const x=board.x+q.x*c, y=board.y+q.y*c;
-    ctx.fillStyle=q.color; rr(x+1,y+1,c-2,c-2,Math.max(2,c*0.18)); ctx.fill();
-    if(q.hp>1){ ctx.strokeStyle="rgba(0,0,0,.5)"; ctx.lineWidth=2; ctx.stroke();
-      ctx.strokeStyle="rgba(255,255,255,.35)"; ctx.lineWidth=1; ctx.stroke(); }
-    ctx.fillStyle="rgba(255,255,255,.18)"; ctx.fillRect(x+2,y+2,c-4,Math.max(2,c*0.12));
-  });
+  const c=board.cell, X0=board.x, Y0=board.y;
+  if(c<11){
+    // швидкий шлях: суцільні квадрати, згруповані за кольором
+    const by=new Map();
+    for(const q of cubes){ let a=by.get(q.color); if(!a){ a=[]; by.set(q.color,a); } a.push(q); }
+    for(const [col,arr] of by){
+      ctx.fillStyle=col; ctx.beginPath();
+      for(const q of arr) ctx.rect(X0+q.x*c, Y0+q.y*c, c, c);
+      ctx.fill();
+    }
+    ctx.fillStyle="rgba(0,0,0,.45)";
+    for(const q of cubes) if(q.hp>1) ctx.fillRect(X0+q.x*c+c*0.33, Y0+q.y*c+c*0.33, c*0.34, c*0.34);
+    return;
+  }
+  const by=new Map();
+  for(const q of cubes){ let a=by.get(q.color); if(!a){ a=[]; by.set(q.color,a); } a.push(q); }
+  for(const [col,arr] of by){
+    ctx.fillStyle=col; ctx.beginPath();
+    for(const q of arr) rr(X0+q.x*c+1, Y0+q.y*c+1, c-2, c-2, Math.max(2,c*0.18));
+    ctx.fill();
+  }
 }
 function drawPigs(){
   pigs.forEach(p=>{
@@ -603,6 +636,20 @@ function resize(){ DPR=Math.min(2,window.devicePixelRatio||1); W=cv.clientWidth;
   cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); layout(); }
 window.addEventListener("resize",resize);
 buildLevel(0); resize(); requestAnimationFrame(tick);
+
+(function(){
+  const btn=document.getElementById("cfgBtn"), box=document.getElementById("cfg");
+  const belt=document.getElementById("belt"), fire=document.getElementById("fire");
+  const bv=document.getElementById("beltV"), fv=document.getElementById("fireV");
+  const paint=()=>{ bv.textContent=Math.round(PIG_SPEED)+" px/с"; fv.textContent=Math.round(FIRE_CD*1000)+" мс"; };
+  belt.value=PIG_SPEED; fire.value=Math.round(FIRE_CD*1000); paint();
+  const save=()=>{ PIG_SPEED=+belt.value; FIRE_CD=(+fire.value)/1000;
+    try{ localStorage.setItem("pixelflow.speed", JSON.stringify({belt:PIG_SPEED, fire:FIRE_CD})); }catch(e){}
+    paint(); };
+  belt.addEventListener("input",save); fire.addEventListener("input",save);
+  btn.addEventListener("click",()=>box.classList.toggle("on"));
+  document.getElementById("cfgClose").addEventListener("click",()=>box.classList.remove("on"));
+})();
 
 /* тестові хуки */
 window.__g={
