@@ -245,8 +245,14 @@ function makePool(){
     for(const [col,arr] of groups) if(!bestArr || arr.length>bestArr.length){ bestCol=col; bestArr=arr; }
     if(!bestCol) break;
     let left=bestArr.length, seq=0;
-    while(left>0){ const n = left<=10 ? 10 : (seq%3===2 ? 10 : 20);
-      pool.push({color:bestCol, ammo:Math.min(20,n)}); left-=Math.min(left,n); seq++; }
+    const big = cubes.length;
+    const chunk = big>1500 ? 100 : (big>600 ? 50 : 20);
+    const half = chunk/2;
+    while(left>0){
+      let n = left<=half ? half : (seq%3===2 ? half : chunk);
+      n = Math.min(n, chunk);
+      pool.push({color:bestCol, ammo:n}); left-=n; seq++;
+    }
     bestArr.forEach(k=>alive.delete(k));
   }
   // перемішуємо всередині вікон: потрібний колір рідко лежить зверху
