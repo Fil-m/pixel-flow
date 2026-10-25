@@ -26,25 +26,33 @@
    Порося з залишком боєзапасу після кола сідає в лоток. */
 
 const LEVELS = [
-  { name:"Серце", lines:5, belt:5, palette:["#e5484d","#ffe3e6","#b8262c"], art:[
+  { name:"Серце", lines:5, belt:5,
+    legend:{r:"#e5484d", w:"#f7f7f7", d:"#7a1c22"}, art:[
     "..............","...rr....rr...","..rwrr..rrrdr.",".rwwrrrrrrrdr.",".rrrrrrrrrrdr.",
     ".rrrrrrrrrrdr.","..rrrrrrrrdr..","...rrrrrrdr...","....rrrrdr....",".....rrdr.....",
     "......rr......",".............."]},
-  { name:"Гриб", lines:4, belt:6, palette:["#e5484d","#fff6ee","#7a2f36","#3fbf6f"], art:[
-    "................","................","....rrrrrrrr....","...rrwrrrrwrr...","..rrrrrrrrrrrr..",
-    "..rwrrrrrrrrwr..","..rrrrrrrrrrrr..","..kkkkkkkkkkkk..","....kwwwwwwk....","....kkwwwwkk....",
-    "...kkwwwwkk...","...kwccccwk...","..kkwccccwkk..","..kwwwwwwwwk..","..kwwwwwwwwk..",
-    "..kkwwwwwwkk..","...krrrrrrk...","...krrrrrrk...","....krrrrk....","....koooyk....","......oy......"]},
-  { name:"Котик", lines:5, belt:7, palette:["#3a3f4b","#f2f2f2","#f08fa8","#5cc98a"], art:[
-    "................","..kk........kk..","..kkkk....kkkk..","..kkkkkkkkkkkk..","..kkkkkkkkkkkk..",
-    ".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.",
-    ".kkkkkkkkkkkkkk.",".kkkkkkkkkkkkkk.","..kkkkkkkkkkkk..","...kkkkkkkkkk...","....kkkkkkkk...."]},
-  { name:"Ракета", lines:3, belt:8, palette:["#e9eef7","#e5484d","#7f8798","#ff9f43"], art:[
-    ".......ww.......","......wwww......",".....wwwwww.....","....wwwwwwww....","....wwwwwwww....",
-    "....wwwwwwww....","....wwwwwwww....","....wwwwwwww....","....wwwwwwww....","...gwwwwwwwwg...",
-    "...gwwwwwwwwg...","..ggwwwwwwwwgg..","..ggwwwwwwwwgg..","..gg.wwwwww.gg..",".....oooooo.....",
-    "......oooo......"]},
-  ];
+  { name:"Гриб", lines:4, belt:6,
+    legend:{r:"#e5484d", w:"#f7f7f7", k:"#262b36", c:"#d9b382", g:"#45c26b"},
+    art:[
+    "....................","......rrrrrrrr......","....rrwwrrrrwwrr....","...rrwwwwrrwwwwrr...",
+    "..rrwwwwwwwwwwwwrr..","..rrrrwwwwwwwwrrrr..","..rrrrrrrrrrrrrrrr..","...kkkkkkkkkkkkkk...",
+    "......kcccccck......","......kcccccck......",".....kcccccccck.....",".....kcccccccck.....",
+    "....kcccccccccck....","....kcccccccccck....",".....kkccccccckk....",".......gggggg......."]},
+  { name:"Котик", lines:5, belt:7,
+    legend:{k:"#262b36", w:"#f7f7f7", p:"#f08fa8", g:"#45c26b"},
+    art:[
+    "..................","..kk..........kk..","..kkk........kkk..","..kkkk......kkkk..",
+    "..kppk......kppk..","..kppkkkkkkkkppk..","..kwwwwwwwwwwwwk..","..kwwwwwwwwwwwwk..",
+    "..kwggwwwwwwggwk..","..kwggwwwwwwggwk..","..kwwwwwppwwwwwk..","..kwwwwwwwwwwwwk..",
+    "...kwwwwwwwwwwk...","....kkwwwwwwkk....","......kkkkkk......",".................."]},
+  { name:"Ракета", lines:3, belt:8,
+    legend:{w:"#f7f7f7", r:"#e5484d", g:"#7f8798", o:"#ff9f43", y:"#ffe066", b:"#4a8fe7"},
+    art:[
+    ".......ww.......","......wwww......",".....wwrrww.....","....wwrrrrww....","....wwrrrrww....",
+    "....wwbbbbww....","....wwbbbbww....","....wwwwwwww....","....wwwwwwww....","...gwwwwwwwwg...",
+    "...gwwwwwwwwg...","..ggwwrrrrwwgg..","..ggwwrrrrwwgg..","..gg.wwwwww.gg..",".....oyyyyo.....",
+    "......oyyo......"]},
+];
 
 const TRAYS = 5;       // лотки для тих, хто повернувся
 const QUEUES = 4;      // чотири вертикальні черги
@@ -59,8 +67,20 @@ let pathPts=[], pathLen=0;
 let pigs=[], trays=Array(TRAYS).fill(null), queues=[], shots=[], queueCount=4, beltCap=5;
 let trayCount=TRAYS, boosters={hand:3,shuffle:3,tray:3,super:3}, mode=null;
 let status="play", totalCubes=0, unlocked=0, stuckT=0, levelName="", lastGrid=null;
-let cubeMap=new Map();
-function reindex(){ cubeMap.clear(); cubes.forEach(c=>cubeMap.set(c.x+","+c.y,c)); }
+let cubeMap=new Map(), exposedSet=new Set();
+function reindex(){ cubeMap.clear(); cubes.forEach(c=>cubeMap.set(c.x+","+c.y,c)); refreshExposed(); }
+function refreshExposed(){
+  const s=new Set(), has=(x,y)=>cubeMap.has(x+","+y);
+  for(let y=0;y<contentH;y++){
+    for(let x=0;x<contentW;x++){ if(has(x,y)){ s.add(x+","+y); break; } }
+    for(let x=contentW-1;x>=0;x--){ if(has(x,y)){ s.add(x+","+y); break; } }
+  }
+  for(let x=0;x<contentW;x++){
+    for(let y=0;y<contentH;y++){ if(has(x,y)){ s.add(x+","+y); break; } }
+    for(let y=contentH-1;y>=0;y--){ if(has(x,y)){ s.add(x+","+y); break; } }
+  }
+  exposedSet=s;
+}
 
 try{ const s=JSON.parse(localStorage.getItem("pixelflow.belt2")||"{}"); unlocked=s.unlocked||0; }catch(e){}
 function save(){ try{ localStorage.setItem("pixelflow.belt2", JSON.stringify({unlocked})); }catch(e){} }
@@ -160,9 +180,13 @@ function buildLevel(li){
     rest=rest.filter(c=>!front.includes(c));
     li0++;
   }
-  const H0=Math.max(...mask.map(c=>c.y))+1;
-  const band=Math.max(1,Math.ceil(H0/L.palette.length));
-  cubes=mask.map(c=>({x:c.x,y:c.y,color:L.palette[Math.floor(c.y/band)%L.palette.length],hp:1}));
+  const letters=Object.keys(L.legend);
+  cubes=mask.map(c=>{
+    const ch=L.art[c.y][c.x];
+    let col=L.legend[ch];
+    if(!col){ col=L.legend[letters[0]]; }
+    return {x:c.x,y:c.y,color:col,hp:1};
+  });
   { const big=[]; cubes.forEach(c=>{ for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++) big.push({x:c.x*2+dx,y:c.y*2+dy,color:c.color,hp:1}); }); cubes=big; }
   const minX=Math.min(...cubes.map(c=>c.x)), maxX=Math.max(...cubes.map(c=>c.x));
   const minY=Math.min(...cubes.map(c=>c.y)), maxY=Math.max(...cubes.map(c=>c.y));
@@ -178,41 +202,52 @@ function buildLevel(li){
   makePool();
 }
 function peelOrder(){
-  const alive=new Map(cubes.map(c=>[c.x+","+c.y,c]));
-  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
-  const exposed=c=>dirs.some(([dx,dy])=>!alive.has((c.x+dx)+","+(c.y+dy)));
-  const out=[]; let rest=cubes.slice();
-  while(rest.length){
-    const layer=rest.filter(exposed);
-    if(!layer.length){ out.push(...rest); break; }
-    out.push(...layer);
-    layer.forEach(c=>alive.delete(c.x+","+c.y));
-    rest=rest.filter(c=>alive.has(c.x+","+c.y));
+  // порядок зняття = шари за лінією видимості (перший куб у ряду/стовпці з будь-якого боку)
+  const byKey=new Map(cubes.map(c=>[c.x+","+c.y,c]));
+  const alive=new Set(byKey.keys());
+  const out=[];
+  while(alive.size){
+    const exp=new Set();
+    for(let y=0;y<contentH;y++){
+      for(let x=0;x<contentW;x++){ const k=x+","+y; if(alive.has(k)){ exp.add(k); break; } }
+      for(let x=contentW-1;x>=0;x--){ const k=x+","+y; if(alive.has(k)){ exp.add(k); break; } }
+    }
+    for(let x=0;x<contentW;x++){
+      for(let y=0;y<contentH;y++){ const k=x+","+y; if(alive.has(k)){ exp.add(k); break; } }
+      for(let y=contentH-1;y>=0;y--){ const k=x+","+y; if(alive.has(k)){ exp.add(k); break; } }
+    }
+    if(!exp.size) break;
+    for(const k of exp){ out.push(byKey.get(k)); alive.delete(k); }
   }
   return out;
 }
 function makePool(){
-  // поросята тільки з боєзапасом 10–20, як в оригіналі
-  const order=peelOrder().filter(c=>!c.black);
-  const runs=[];
-  for(const c of order){
-    const last=runs[runs.length-1];
-    if(last && last.color===c.color) last.n++;
-    else runs.push({color:c.color, n:1});
-  }
-  const pool=[]; let seq=0;
-  for(const r of runs){
-    let left=r.n;
-    while(left>0){
-      // тільки 20, іноді 10 — як в оригіналі
-      let n;
-      if(left<=10) n=10;
-      else if(left<=20) n=(seq%3===2?10:20);
-      else n=(seq%3===2?10:20);
-      pool.push({color:r.color, ammo:n});
-      left-=Math.min(left,n);
-      seq++;
+  // порядок видачі = симуляція реального очищення: беремо колір, який зараз відкритий найбільше
+  const alive=new Set(cubes.map(c=>c.x+","+c.y));
+  const byKey=new Map(cubes.map(c=>[c.x+","+c.y,c]));
+  const pool=[];
+  let guard=0;
+  while(alive.size && guard++<400){
+    const exp=new Set();
+    const has=(x,y)=>alive.has(x+","+y);
+    for(let y=0;y<contentH;y++){
+      for(let x=0;x<contentW;x++){ if(has(x,y)){ exp.add(x+","+y); break; } }
+      for(let x=contentW-1;x>=0;x--){ if(has(x,y)){ exp.add(x+","+y); break; } }
     }
+    for(let x=0;x<contentW;x++){
+      for(let y=0;y<contentH;y++){ if(has(x,y)){ exp.add(x+","+y); break; } }
+      for(let y=contentH-1;y>=0;y--){ if(has(x,y)){ exp.add(x+","+y); break; } }
+    }
+    const groups=new Map();
+    for(const k of exp){ const c=byKey.get(k); if(!c) continue;
+      if(!groups.has(c.color)) groups.set(c.color,[]); groups.get(c.color).push(k); }
+    let bestCol=null, bestArr=null;
+    for(const [col,arr] of groups) if(!bestArr || arr.length>bestArr.length){ bestCol=col; bestArr=arr; }
+    if(!bestCol) break;
+    let left=bestArr.length, seq=0;
+    while(left>0){ const n = left<=10 ? 10 : (seq%3===2 ? 10 : 20);
+      pool.push({color:bestCol, ammo:Math.min(20,n)}); left-=Math.min(left,n); seq++; }
+    bestArr.forEach(k=>alive.delete(k));
   }
   pool.forEach((p,i)=>{ queues[i%queueCount].push(p); });
 }
@@ -286,10 +321,7 @@ function returnPig(p){
   status="lose"; buzz([40,60,40]);   // поросяту нема куди сісти — слоти зайняті
   return false;
 }
-function isVisible(c){
-  return !cubeMap.has((c.x+1)+","+c.y) || !cubeMap.has((c.x-1)+","+c.y) ||
-         !cubeMap.has(c.x+","+(c.y+1)) || !cubeMap.has(c.x+","+(c.y-1));
-}
+function isVisible(c){ return exposedSet.has(c.x+","+c.y); }
 function superWipe(color){
   const targets=cubes.filter(c=>c.color===color && isVisible(c));
   cubes=cubes.filter(c=>!targets.includes(c));
@@ -571,15 +603,20 @@ window.__g={
   step(dt=1/60){ update(dt); },
   auto(seconds=200){ let t=0;
     while(status==="play"&&t<seconds){
+      if(pigs.length<beltCap && !trays.some(x=>!x)){
+        // усі лотки зайняті: випускаємо порося з лотка, щоб звільнити місце
+        deployTray(0);
+      }
       if(pigs.length<beltCap && trays.some(x=>!x)){
         const vis=new Set(cubes.filter(c=>!c.black && isVisible(c)).map(c=>c.color));
         let did=false;
         for(let i=0;i<trayCount;i++) if(trays[i] && vis.has(trays[i].color)){ deployTray(i); did=true; break; }
-        if(!did) for(let qi=0;qi<queueCount;qi++) if(queues[qi].length && vis.has(queues[qi][0].color)){ deployQueue(qi); did=true; break; }
+        if(!did){ outer2: for(let qi=0;qi<queueCount;qi++){ const q=queues[qi];
+          for(let k=0;k<Math.min(3,q.length);k++) if(vis.has(q[k].color)){ deployQueue(qi,k); did=true; break outer2; } } }
         if(!did && boosters.hand>0){
           outer: for(let qi=0;qi<queueCount;qi++){
             const q=queues[qi];
-            for(let k=1;k<q.length;k++) if(vis.has(q[k].color)){ mode='hand'; deployQueue(qi,k); did=true; break outer; }
+            for(let k=3;k<q.length;k++) if(vis.has(q[k].color)){ mode='hand'; deployQueue(qi,k); did=true; break outer; }
           }
         }
       }
