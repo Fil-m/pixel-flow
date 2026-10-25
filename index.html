@@ -324,6 +324,7 @@ function pointAt(d){
 /* ---------- дії ---------- */
 function canDeploy(){ return status==="play" && pigs.length<beltCap; }
 function deployPig(p){
+  p.lastLane=null; p.usedLanes=new Set();
   if(!p) return false;
   if(!canDeploy()) return false;
   pigs.push({...p, d:0, cd:0});
@@ -412,12 +413,19 @@ function update(dt){
     }
     if(p.cd>0) continue;
     const pos=pointAt(p.d);
-    const hit=rayTarget(pos, inwardDir(p.d));
+    const dir=inwardDir(p.d);
+    // один піксель на смугу: у глибину за одним і тим самим променем не б'є
+    const lane = dir.y!==0 ? "v"+Math.round((pos.x-board.x)/board.cell-0.5)+":"+dir.y
+                           : "h"+Math.round((pos.y-board.y)/board.cell-0.5)+":"+dir.x;
+    if(!p.usedLanes) p.usedLanes=new Set();
+    if(p.usedLanes.has(lane)) continue;
+    const hit=rayTarget(pos, dir);
     // перший куб на лінії: свій колір — влучання, чужий — блок, пострілу нема
     if(hit && (hit.black || hit.color===p.color)){
       hit.hp--; if(hit.hp<=0){ const ix=cubes.indexOf(hit); if(ix>=0) cubes.splice(ix,1); reindex(); } p.ammo--; p.cd=FIRE_CD;
       const cx=board.x+(hit.x+0.5)*board.cell, cy=board.y+(hit.y+0.5)*board.cell;
       shots.push({x:pos.x,y:pos.y,tx:cx,ty:cy,color:p.color,t:0});
+      p.lastLane=lane; p.usedLanes.add(lane); if(window.__shotLog) window.__shotLog.push(lane);
       buzz(4);
       if(hit.hp<=0){ cubes=cubes.filter(c=>c!==hit); stuckT=0; pruneDead(); }
       if(p.ammo<=0) pigs.splice(i,1);
