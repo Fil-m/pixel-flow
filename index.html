@@ -313,7 +313,8 @@ function inwardDir(d){
   const cx=board.x+board.w/2, cy=board.y+board.h/2;
   const pos=pointAt(d);
   if((cx-pos.x)*nx+(cy-pos.y)*ny < 0){ nx=-nx; ny=-ny; }  // всередину поля
-  return {x:nx,y:ny};
+  // постріл тільки по осі: інакше діагональні промені обходять закриті пікселі
+  return Math.abs(nx)>=Math.abs(ny) ? {x:Math.sign(nx)||1,y:0} : {x:0,y:Math.sign(ny)||1};
 }
 function rayTarget(pos, dir){
   const ux=dir.x, uy=dir.y;
