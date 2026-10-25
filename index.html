@@ -13,7 +13,7 @@
   #photo{display:none}
   #photoLbl{position:fixed;right:10px;top:10px;z-index:20;background:#1b2130;border:1px solid #2a3346;
     color:#cfd6e6;font:700 13px -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:12px}
-  #cfgBtn{position:fixed;left:10px;top:10px;z-index:21;background:#1b2130;border:1px solid #2a3346;
+  #cfgBtn{position:fixed;right:10px;top:52px;z-index:21;background:#1b2130;border:1px solid #2a3346;
     color:#cfd6e6;font:700 16px -apple-system,system-ui,sans-serif;padding:8px 12px;border-radius:12px}
   #cfg{position:fixed;left:10px;right:10px;top:58px;z-index:22;background:#141a26;border:1px solid #2a3346;
     border-radius:14px;padding:12px 14px;color:#cfd6e6;font:600 13px -apple-system,system-ui,sans-serif;display:none}
@@ -57,7 +57,7 @@ const LEVELS = [
     "......kcccccck......","......kcccccck......",".....kcccccccck.....",".....kcccccccck.....",
     "....kcccccccccck....","....kcccccccccck....",".....kkccccccckk....",".......gggggg......."]},
   { name:"Котик", lines:5, belt:7,
-    legend:{k:"#262b36", w:"#f7f7f7", p:"#f08fa8", g:"#45c26b"},
+    legend:{k:"#e08b3c", w:"#fff6ee", p:"#f08fa8", g:"#45c26b"},
     art:[
     "..................","..kk..........kk..","..kkk........kkk..","..kkkk......kkkk..",
     "..kppk......kppk..","..kppkkkkkkkkppk..","..kwwwwwwwwwwwwk..","..kwwwwwwwwwwwwk..",
@@ -530,27 +530,15 @@ function drawPath(){
   ctx.fillText(`конвеєр ${pigs.length}/${beltCap}`, lx-3, ly+0.5);
 }
 function drawCubes(){
-  const c=board.cell, X0=board.x, Y0=board.y;
-  if(c<11){
-    // швидкий шлях: суцільні квадрати, згруповані за кольором
-    const by=new Map();
-    for(const q of cubes){ let a=by.get(q.color); if(!a){ a=[]; by.set(q.color,a); } a.push(q); }
-    for(const [col,arr] of by){
-      ctx.fillStyle=col; ctx.beginPath();
-      for(const q of arr) ctx.rect(X0+q.x*c, Y0+q.y*c, c, c);
-      ctx.fill();
-    }
-    ctx.fillStyle="rgba(0,0,0,.45)";
-    for(const q of cubes) if(q.hp>1) ctx.fillRect(X0+q.x*c+c*0.33, Y0+q.y*c+c*0.33, c*0.34, c*0.34);
-    return;
-  }
+  const c=board.cell, X0=board.x, Y0=board.y, ins=c>=7?1:0, s=c-2*ins;
   const by=new Map();
   for(const q of cubes){ let a=by.get(q.color); if(!a){ a=[]; by.set(q.color,a); } a.push(q); }
   for(const [col,arr] of by){
-    ctx.fillStyle=col; ctx.beginPath();
-    for(const q of arr) rr(X0+q.x*c+1, Y0+q.y*c+1, c-2, c-2, Math.max(2,c*0.18));
-    ctx.fill();
+    ctx.fillStyle=col;
+    for(const q of arr) ctx.fillRect(X0+q.x*c+ins, Y0+q.y*c+ins, s, s);
   }
+  ctx.fillStyle="rgba(0,0,0,.45)";
+  for(const q of cubes) if(q.hp>1) ctx.fillRect(X0+q.x*c+c*0.33, Y0+q.y*c+c*0.33, c*0.34, c*0.34);
 }
 function drawPigs(){
   pigs.forEach(p=>{
