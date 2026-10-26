@@ -350,8 +350,6 @@ function deployTray(i){
   if(canDeploy() && deployPig(trays[i])) trays[i]=null;
 }
 function returnPig(p){
-  // порося, чий колір уже знятий з картинки, у лоток не сідає
-  if(!cubes.some(c=>c.color===p.color)) return true;
   const i=trays.findIndex(t=>!t);
   if(i>=0){ trays[i]={color:p.color,ammo:p.ammo}; return true; }
   status="lose"; buzz([40,60,40]);   // поросяту нема куди сісти — слоти зайняті
