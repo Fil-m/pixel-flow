@@ -420,7 +420,7 @@ function update(dt){
     if(p.usedLanes.has(lane)) continue;
     const hit=rayTarget(pos, dir);
     // перший куб на лінії: свій колір — влучання, чужий — блок, пострілу нема
-    if(hit && (hit.black || hit.color===p.color)){
+    if(hit && (p.super || hit.black || hit.color===p.color)){
       hit.hp--; if(hit.hp<=0){ const ix=cubes.indexOf(hit); if(ix>=0) cubes.splice(ix,1); reindex(); } p.ammo--; p.cd=FIRE_CD;
       const cx=board.x+(hit.x+0.5)*board.cell, cy=board.y+(hit.y+0.5)*board.cell;
       shots.push({x:pos.x,y:pos.y,tx:cx,ty:cy,color:p.color,t:0});
@@ -475,9 +475,29 @@ cv.addEventListener("pointerdown",e=>{
     return;
   }
   if(mode==="super"){
-    const gx=Math.floor((x-board.x)/board.cell), gy=Math.floor((y-board.y)/board.cell);
-    const c=cubes.find(q=>q.x===gx&&q.y===gy);
-    if(c){ superWipe(c.color); boosters.super--; mode=null; }
+    // ★ робить вибране порося «супер»: б'є будь-який колір
+    for(const p of pigs){
+      const pos=pointAt(p.d);
+      if(Math.hypot(pos.x-x,pos.y-y)<26){ p.super=true; boosters.super--; mode=null; buzz(10); return; }
+    }
+    for(let i=0;i<trayCount;i++){
+      const s=trayRect(i);
+      if(trays[i] && x>=s.x&&x<=s.x+s.w&&y>=s.y&&y<=s.y+s.h){
+        const p=trays[i]; trays[i]=null; p.super=true; deployPig(p); boosters.super--; mode=null; buzz(10); return;
+      }
+    }
+    for(let qi=0;qi<queueCount;qi++){
+      const q=queues[qi]; if(!q.length) continue;
+      for(let k=0;k<Math.min(3,q.length);k++){
+        const s=queueRect(qi,k);
+        if(x>=s.x-2&&x<=s.x+s.w+2&&y>=s.y-3&&y<=s.y+s.h+3){
+          const p=q[k]; q.splice(k,1); p.super=true;
+          if(canDeploy()) deployPig(p); else { q.unshift(p); }
+          boosters.super--; mode=null; buzz(10); return;
+        }
+      }
+    }
+    mode=null;
     return;
   }
   for(let b=0;b<4;b++){ const r=boosterRect(b);
