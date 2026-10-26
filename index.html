@@ -432,13 +432,6 @@ function update(dt){
       p.cd=FIRE_CD*1.6;  // чужий колір попереду — порося не пробиває
     }
   }
-  if(status==="play" && trays.every(Boolean)){
-    const vis=new Set(cubes.filter(c=>isVisible(c)).map(c=>c.color));
-    const canAct = pigs.some(p=>vis.has(p.color)) ||
-      trays.some(p=>p && vis.has(p.color)) ||
-      queues.some(q=>q.length && vis.has(q[0].color));
-    if(!canAct){ status="lose"; buzz([40,60,40]); }   // слоти забиті, ходити нічим
-  }
   if(lastCubeCount===cubes.length) stuckT+=dt; else { stuckT=0; lastCubeCount=cubes.length; }
   if(status==="play" && stuckT>Math.max(25, pathLen/PIG_SPEED*1.6)){ status="lose"; buzz([40,60,40]); }
   if(cubes.length===0){ status="win"; unlocked=Math.max(unlocked,level+1); save(); buzz([20,60,20]); }
