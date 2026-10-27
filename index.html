@@ -451,8 +451,6 @@ function update(dt){
       p.cd=FIRE_CD*1.6;  // чужий колір попереду — порося не пробиває
     }
   }
-  if(lastCubeCount===cubes.length) stuckT+=dt; else { stuckT=0; lastCubeCount=cubes.length; }
-  if(status==="play" && stuckT>Math.max(25, pathLen/PIG_SPEED*1.6)){ status="lose"; buzz([40,60,40]); }
   if(cubes.length===0){ status="win"; unlocked=Math.max(unlocked,level+1); save(); buzz([20,60,20]); }
   else if(pigs.length===0 && trays.every(t=>!t) && queues.every(q=>q.length===0)){ status="lose"; buzz([40,60,40]); }
 }
