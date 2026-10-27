@@ -121,6 +121,19 @@ const PRESET=[["#e5484d","red"],["#ff7a3d","orange"],["#ffd23f","yellow"],["#45c
   ["#2fb3a3","teal"],["#4a8fe7","blue"],["#1f3f8f","navy"],["#a06bff","violet"],["#d45cc0","magenta"],
   ["#f08fa8","pink"],["#f4f4f4","white"],["#c9b18b","sand"],["#8a5a2b","brown"],["#262b36","dark"]];
 function presetLab(){ return PRESET.map(([h])=>srgb2lab(parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16))); }
+function saturate(hex,k=1.45){
+  const n=parseInt(hex.slice(1),16); let r=((n>>16)&255)/255,g=((n>>8)&255)/255,b=(n&255)/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b); let h=0,s=0,l=(mx+mn)/2;
+  if(mx!==mn){ const d=mx-mn; s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+    h = mx===r ? ((g-b)/d+(g<b?6:0)) : mx===g ? ((b-r)/d+2) : ((r-g)/d+4); h/=6; }
+  if(s<0.14) return hex;                       // білий/сірий/чорний не чіпаємо
+  s=Math.min(1,s*k); l=Math.min(0.78,Math.max(0.18,l*1.04+0.02));
+  const hue2rgb=(p,q,t)=>{ if(t<0)t+=1; if(t>1)t-=1;
+    if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+  const q=l<0.5?l*(1+s):l+s-l*s, pp=2*l-q;
+  const to=v=>Math.max(0,Math.min(255,Math.round(v*255))).toString(16).padStart(2,"0");
+  return "#"+to(hue2rgb(pp,q,h+1/3))+to(hue2rgb(pp,q,h))+to(hue2rgb(pp,q,h-1/3));
+}
 function quantizePalette(px,k=16){
   // k-means по картинці; лишаємо тільки кольори, які око розрізняє (ΔE)
   const pts=px.filter((_,i)=>i%2===0).map(p=>[p[0],p[1],p[2]]);
@@ -152,7 +165,8 @@ function quantizePalette(px,k=16){
     }
     if(picked.length>=6) break;
   }
-  return picked.map(c=>"#"+c.slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join(""));
+  const hexes=picked.map(c=>"#"+c.slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join(""));
+  return hexes.map(h=>saturate(h,1.5));
 }
 function startCustom(cells,gw,gh){
   level=-1; levelName="Фото";
@@ -220,9 +234,10 @@ function buildLevel(li){
     li0++;
   }
   const letters=Object.keys(L.legend);
+  const legFat={}; for(const k of letters) legFat[k]=saturate(L.legend[k],1.35);
   cubes=mask.map(c=>{
     const ch=L.art[c.y][c.x];
-    let col=L.legend[ch];
+    let col=legFat[ch];
     if(!col){ col=L.legend[letters[0]]; }
     return {x:c.x,y:c.y,color:col,hp:1};
   });
